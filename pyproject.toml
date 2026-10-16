@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dienstkern"
+description = "Dienstkern: starten, anhalten und beobachten von Diensten eines Rechners; Grundlage von Maschinenraum und Stellwerk"
+requires-python = ">=3.11"
+dynamic = ["version"]
+dependencies = [
+  "pydantic>=2.7",
+  "fastapi>=0.115",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=8", "pytest-asyncio>=0.24", "httpx>=0.27"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["tests"]
+addopts = "-q -p no:cacheprovider"
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+
+[tool.setuptools.packages.find]
+include = ["dienstkern*"]
+
+[tool.setuptools.package-data]
+"dienstkern" = ["VERSION"]
+
+[tool.setuptools.dynamic]
+version = {attr = "dienstkern.__version__"}

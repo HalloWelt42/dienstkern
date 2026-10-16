@@ -33,4 +33,4 @@ def probe(tmp: Path, port: int, kennung: str = "probe", **mehr: str) -> Path:
 
 def verwalter(tmp: Path, regeln: Neustartregeln | None = None) -> Verwalter:
     return Verwalter(lambda: dateien_lesen(tmp / "dienste", Vorlage), tmp / "protokolle", tmp / "zustand.json",
-                     regeln or Neustartregeln(pausen_s=[0.2]), takt_s=1, herkunft="Test")
+                     regeln or Neustartregeln(pausen_s=[0.2]), takt_s=1, herkunft="vom Test")

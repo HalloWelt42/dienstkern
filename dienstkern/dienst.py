@@ -67,9 +67,9 @@ def _signal_prozesse(pids: list[int], sig: int) -> None:
 
 
 class Dienst:
-    """Ein verwalteter Dienst; `herkunft` steht im Protokoll bei jedem Start (wer ihn gestartet hat)."""
+    """Ein verwalteter Dienst; `herkunft` steht im Protokoll bei jedem Start, etwa "vom Maschinenraum"."""
 
-    def __init__(self, vorlage: Vorlage, protokolle: Path, stand: DienstStand, herkunft: str = "Dienstkern") -> None:
+    def __init__(self, vorlage: Vorlage, protokolle: Path, stand: DienstStand, herkunft: str = "vom Dienstkern") -> None:
         self.vorlage = vorlage
         self.protokolle = protokolle
         self.stand = stand
@@ -247,7 +247,7 @@ class Dienst:
         env = self._umgebung()
         self._vorher(env)
         with self._protokoll_oeffnen() as aus:
-            aus.write(f"\n--- gestartet von {self.herkunft} {time.strftime('%Y-%m-%d %H:%M:%S')} ---\n".encode())
+            aus.write(f"\n--- gestartet {self.herkunft} {time.strftime('%Y-%m-%d %H:%M:%S')} ---\n".encode())
             aus.flush()
             self.prozess = subprocess.Popen(v.programm(env), cwd=v.ordner, env=env, stdin=subprocess.DEVNULL, stdout=aus, stderr=subprocess.STDOUT,
                                             start_new_session=True)

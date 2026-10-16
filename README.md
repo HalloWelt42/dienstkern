@@ -43,7 +43,7 @@ from dienstkern.vorlage import Vorlage, dateien_lesen
 
 ordner = Path("~/Beispiel").expanduser()
 verwalter = Verwalter(lambda: dateien_lesen(ordner / "dienste", Vorlage), ordner / "protokolle", ordner / "zustand.json",
-                      herkunft="Beispiel")
+                      herkunft="vom Beispiel")
 # in einer asyncio-Schleife: await verwalter.schleife(); await verwalter.starten("probe")
 ```
 

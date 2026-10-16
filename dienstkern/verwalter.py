@@ -38,8 +38,10 @@ class Ergebnis(BaseModel):
 
 
 class Verwalter:
+    """`herkunft` ergänzt im Protokoll jedes Dienstes die Zeile beim Start ("gestartet vom Maschinenraum")."""
+
     def __init__(self, quelle: Quelle, protokolle: Path, zustand_datei: Path, regeln: Neustartregeln | None = None,
-                 takt_s: float = 5.0, herkunft: str = "Dienstkern") -> None:
+                 takt_s: float = 5.0, herkunft: str = "vom Dienstkern") -> None:
         self.quelle = quelle
         self.protokolle = protokolle
         self.zustand_datei = zustand_datei

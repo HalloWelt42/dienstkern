@@ -31,7 +31,7 @@ async def test_starten_messen_anhalten(tmp_path: Path):
     b = v.berichte()[0]
     assert b.zustand == Zustand.LAEUFT and b.gb_jetzt is not None and 0 < b.gb_jetzt < 2 and not b.fremd
     assert b.bedarf_gb >= max(b.gb_jetzt, 0.5)                    # mindestens die Schätzung der Vorlage
-    assert (tmp_path / "protokolle" / "probe.log").read_text().count("gestartet von Test") == 1
+    assert (tmp_path / "protokolle" / "probe.log").read_text().count("gestartet vom Test") == 1
     assert v.stand.dienste["probe"].soll == Soll.LAEUFT and b.soll == Soll.LAEUFT
     e = await v.anhalten("probe")
     assert e.erfolg and e.meldung == "beendet"

@@ -11,9 +11,9 @@ from importlib import metadata
 from pathlib import Path
 
 
-def fassung(paketordner: Path) -> str:
-    """Fassung eines Pakets: `VERSION` im Paket (vom Installationsskript), `version.json` daneben (Quelle) oder die
-    beim Bau eingetragene Fassung (installiert aus einem Archiv)."""
+def _fassung(paketordner: Path) -> str:
+    """`VERSION` im Paket (vom Installationsskript), `version.json` daneben (Quelle) oder die beim Bau eingetragene
+    Fassung (installiert aus einem Archiv)."""
     datei = paketordner / "VERSION"
     if datei.is_file():
         return datei.read_text(encoding="utf-8").strip()
@@ -26,4 +26,4 @@ def fassung(paketordner: Path) -> str:
         return "0.0.0"
 
 
-__version__ = fassung(Path(__file__).resolve().parent)
+__version__ = _fassung(Path(__file__).resolve().parent)

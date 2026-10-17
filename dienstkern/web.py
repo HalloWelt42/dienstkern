@@ -55,14 +55,15 @@ def schutz_einrichten(app: FastAPI, lauschadresse: Callable[[], str], kopf: str)
 
 
 def oberflaeche_ausliefern(app: FastAPI, wurzel: Path) -> None:
-    """Liefert die gebaute Oberfläche aus; unbekannte Pfade bekommen index.html. Zuletzt einrichten (fängt alles)."""
+    """Liefert die gebaute Oberfläche aus; unbekannte Pfade bekommen index.html. Zuletzt einrichten (fängt alles).
+    HEAD wie GET, damit Prüfungen der Symbole und des Manifests (curl -I) dieselbe Antwort sehen."""
     if not (wurzel / "index.html").exists():
         @app.get("/", include_in_schema=False)
         async def ohne():
             return JSONResponse({"meldung": "Oberfläche nicht gebaut; Schnittstelle unter /api/stand"})
         return
 
-    @app.get("/{pfad:path}", include_in_schema=False)
+    @app.api_route("/{pfad:path}", methods=["GET", "HEAD"], include_in_schema=False)
     async def seite(pfad: str):
         datei = (wurzel / pfad).resolve()
         if pfad and datei.is_file() and datei.is_relative_to(wurzel):

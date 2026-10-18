@@ -251,3 +251,22 @@ async def test_start_von_aussen_loescht_keine_abstuerze(tmp_path: Path):
     assert not e.erfolg and "bleibt nach" in e.meldung and not offen(port)
     assert (await v.starten("probe")).erfolg and not d.abstuerze
     await v.anhalten("probe")
+
+
+async def test_fehlerhafte_dienstdatei_haelt_den_dienst_nicht_an(tmp_path: Path):
+    """Wird die Datei eines laufenden Dienstes fehlerhaft (etwa ein Feld, das diese Fassung nicht kennt), läuft er mit der
+    letzten gültigen Fassung weiter; der Fehler steht in den Ladefehlern. Erst eine entfernte Datei hält ihn an."""
+    port = freier_port()
+    probe(tmp_path, port)
+    v = verwalter(tmp_path)
+    await v.runde()
+    assert (await v.starten("probe")).erfolg
+    datei = tmp_path / "dienste" / "probe.toml"
+    datei.write_text(datei.read_text() + "gibt_es_nicht = 4\n")
+    await v.runde()
+    await asyncio.sleep(0.3)
+    assert "probe" in v.dienste and offen(port) and [f.datei for f in v.ladefehler] == ["probe.toml"]
+    datei.unlink()
+    await v.runde()
+    await asyncio.sleep(1.0)
+    assert "probe" not in v.dienste

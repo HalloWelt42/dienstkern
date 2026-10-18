@@ -73,8 +73,11 @@ class Verwalter:
                 log.warning("%s fehlerhaft: %s", f.datei, f.meldung)
         self.ladefehler = fehler
         neu = {v.kennung: v for v in vorlagen}
+        # Eine fehlerhafte Datei hält ihren Dienst nicht an: er läuft mit der letzten gültigen Fassung weiter, der Fehler
+        # steht in den Ladefehlern (18.10.2026: ein neues Feld, das die laufende Fassung nicht kannte, hielt den Tondienst an)
+        fehlerhaft = {Path(f.datei).stem for f in fehler}
         for k in list(self.dienste):
-            if k not in neu:
+            if k not in neu and k not in fehlerhaft:
                 d = self.dienste.pop(k)
                 if d.stand.gruppe is not None:
                     self._nebenbei(d.anhalten())

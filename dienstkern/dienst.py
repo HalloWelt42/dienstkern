@@ -10,6 +10,7 @@ ganze Gruppe. Befehlsdienste (steuerung = befehle) werden per Befehl geprüft un
 from __future__ import annotations
 
 import asyncio
+import math
 import os
 import signal
 import socket
@@ -28,6 +29,16 @@ from .zustand import DienstStand, Soll, Zustand
 
 PROTOKOLL_GRENZE = 20 * 1024 * 1024
 WARTESCHRITT_S = 0.5
+ARBEITSSPITZEN = 30            # so viele Arbeitsphasen zählen für den Bedarf
+BEDARF_ANTEIL = 0.8            # Bedarf: dieser Anteil der Phasen kam damit aus
+
+
+def anteilswert(werte: list[float], anteil: float) -> float:
+    """Der kleinste Wert, mit dem `anteil` der Werte auskommt (Rangverfahren); 0 ohne Werte."""
+    if not werte:
+        return 0.0
+    s = sorted(werte)
+    return s[max(0, min(len(s) - 1, math.ceil(anteil * len(s)) - 1))]
 
 
 class Bericht(BaseModel):
@@ -39,8 +50,8 @@ class Bericht(BaseModel):
     zustand: Zustand
     fremd: bool = False                 # läuft, aber nicht von hier gestartet
     gb_jetzt: float | None = None       # gemessen, solange er läuft; sonst None
-    bedarf_gb: float                    # was er laufend braucht: höchster gemessener Wert, mindestens die Schätzung
-    spitze_gb: float | None = None
+    bedarf_gb: float                    # was er bei der Arbeit braucht (siehe Dienst.bedarf_gb); damit wird geplant
+    spitze_gb: float | None = None      # höchste der gemerkten Arbeitsspitzen (zur Anzeige)
     cpu_prozent: float | None = None    # Prozessorlast, Prozent eines Kerns, solange er läuft
     aktiv: bool = False                 # arbeitet gerade (Prozessorlast über der Schwelle des Dienstes)
     soll: Soll | None = None
@@ -84,6 +95,7 @@ class Dienst:
         self.neustart_um: float | None = None
         self.cpu_prozent: float | None = None             # Prozessorlast seit der letzten Prüfung, Prozent eines Kerns
         self._rechenzeit: tuple[float, float] | None = None  # (Uhrzeit, Summe Rechenzeit) der letzten Prüfung
+        self._phase_spitze: float | None = None              # höchster Speicher der laufenden Arbeitsphase
 
     @property
     def kennung(self) -> str:
@@ -199,9 +211,21 @@ class Dienst:
 
     @property
     def bedarf_gb(self) -> float:
-        """Was der Dienst laufend braucht: der höchste je gemessene Wert, mindestens die Schätzung der Dienstdatei.
-        Dienste laden ihre Modelle oft erst bei Bedarf; der Wert gleich nach dem Start täuscht."""
-        return round(max(self.stand.spitze_gb or 0.0, self.vorlage.speicher_gb, self.gb or 0.0), 2)
+        """Was der Dienst bei der Arbeit braucht: der 80-%-Wert seiner jüngsten Arbeitsspitzen (je Arbeitsphase der
+        höchste Speicher), mindestens die Schätzung der Dienstdatei und der Wert jetzt. Ein einzelner Ausreißer (etwa ein
+        durchgegangenes Modell) fällt so heraus und verfällt mit neuen Phasen; braucht der Dienst wirklich mehr, steigt
+        der Wert von selbst. Früher galt der höchste je gemessene Wert und sank nie (Stimmklon 13,7 statt 4,7 GB, die
+        Leitstelle entlud dafür ein großes Modell; 18.10.2026)."""
+        spitzen = self.stand.arbeitsspitzen + ([self._phase_spitze] if self._phase_spitze is not None else [])
+        return round(max(anteilswert(spitzen, BEDARF_ANTEIL), self.vorlage.speicher_gb, self.gb or 0.0), 2)
+
+    def arbeit_messen(self) -> None:
+        """Je Prüfung: arbeitet er, wächst die Spitze der laufenden Phase; endet die Phase, kommt sie in die Liste."""
+        if self.aktiv and self.gb is not None:
+            self._phase_spitze = max(self._phase_spitze or 0.0, self.gb)
+        elif self._phase_spitze is not None:
+            self.stand.arbeitsspitzen = [*self.stand.arbeitsspitzen, round(self._phase_spitze, 2)][-ARBEITSSPITZEN:]
+            self._phase_spitze = None
 
     def _protokolldatei(self) -> Path:
         return self.protokolle / f"{self.kennung}.log"
@@ -387,7 +411,8 @@ class Dienst:
         laeuft = self.zustand in (Zustand.LAEUFT, Zustand.STARTET, Zustand.STOPPT)
         gemessen = laeuft and self.gb is not None
         return Bericht(kennung=self.kennung, name=self.vorlage.name, port=self.vorlage.port, zustand=self.zustand, fremd=self.fremd_pid is not None,
-                       gb_jetzt=round(self.gb, 2) if gemessen else None, bedarf_gb=self.bedarf_gb, spitze_gb=self.stand.spitze_gb,
+                       gb_jetzt=round(self.gb, 2) if gemessen else None, bedarf_gb=self.bedarf_gb,
+                       spitze_gb=max(self.stand.arbeitsspitzen, default=None),
                        cpu_prozent=self.cpu_prozent if gemessen else None, aktiv=laeuft and self.aktiv, soll=self.stand.soll, meldung=self.meldung)
 
     def protokolldatei(self) -> Path:

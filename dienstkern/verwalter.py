@@ -109,8 +109,7 @@ class Verwalter:
             if d.neustart_um is not None and jetzt >= d.neustart_um:
                 d.neustart_um = None
                 self._nebenbei(self._neustarten(d))
-            if d.gb is not None and d.gb > (d.stand.spitze_gb or 0):
-                d.stand.spitze_gb = round(d.gb, 2)
+            d.arbeit_messen()
             # Messwerte schwanken ständig; gemeldet wird nur, was sich in der Sache ändert (Zustand, Arbeit, Bedarf)
             fluechtig = {"gb_jetzt", "cpu_prozent", "spitze_gb"}
             geaendert = geaendert or d.bericht().model_dump(exclude=fluechtig) != vorher.model_dump(exclude=fluechtig)
@@ -177,13 +176,18 @@ class Verwalter:
         log.info("%s %s: %s", was, d.vorlage.name, meldung)
         return Ergebnis(ziel=d.kennung, erfolg=ok, meldung=meldung)
 
-    async def starten(self, kennung: str) -> Ergebnis:
-        """Starten, mit allem, was er braucht; er soll von nun an laufen (auch nach Neustarts)."""
+    async def starten(self, kennung: str, *, von_hand: bool = True) -> Ergebnis:
+        """Starten, mit allem, was er braucht; er soll von nun an laufen (auch nach Neustarts). Nur ein Start von Hand
+        löscht die Abstürze; ein Dienst, der nach zu vielen Abstürzen aus bleibt, startet auf Befehl von außen nicht."""
         d = self.dienste.get(kennung)
         if d is None:
             return Ergebnis(ziel=kennung, erfolg=False, meldung=f"unbekannter Dienst {kennung}")
+        if not von_hand and len(d.abstuerze) > self.regeln.im_fenster:
+            return Ergebnis(ziel=kennung, erfolg=False,
+                            meldung=f"{d.vorlage.name} bleibt nach {len(d.abstuerze)} Abstürzen aus, bis er von Hand startet")
         d.stand.soll = Soll.LAEUFT
-        d.abstuerze.clear()
+        if von_hand:
+            d.abstuerze.clear()
         ok, meldung = await self._mit_abhaengigkeiten(d)
         return self._abschliessen(d, "starten", ok, meldung)
 

@@ -39,7 +39,7 @@ async def test_starten_messen_anhalten(tmp_path: Path):
     await v.runde()
     b = v.berichte()[0]
     assert b.zustand == Zustand.AUS and b.gb_jetzt is None and b.cpu_prozent is None and not b.aktiv
-    assert b.bedarf_gb == round(max(v.stand.dienste["probe"].spitze_gb, 0.5), 2)   # Bedarf bleibt nach dem Anhalten bekannt
+    assert b.bedarf_gb >= 0.5                                       # Bedarf bleibt nach dem Anhalten bekannt
 
 
 async def test_unbekannter_dienst(tmp_path: Path):
@@ -209,3 +209,45 @@ def test_rechenzeit_aus_ps():
     assert rechenzeit("12:03.00") == 723.0
     assert rechenzeit("1:00:00") == 3600.0
     assert rechenzeit("2-01:00:00") == 2 * 86400 + 3600.0
+
+
+def test_bedarf_aus_arbeitsspitzen_ein_ausreisser_faellt_heraus(tmp_path: Path):
+    """Je Arbeitsphase zählt ihre Speicherspitze; der Bedarf ist der 80-%-Wert der jüngsten 30, mindestens die Schätzung.
+    Ein einziger Ausreißer (13,7 GB bei sonst 4,7) treibt ihn nicht mehr hoch; bleibt er die Regel, steigt er."""
+    from dienstkern.dienst import ARBEITSSPITZEN, Dienst, anteilswert
+    from dienstkern.vorlage import Vorlage
+    from dienstkern.zustand import DienstStand
+
+    assert anteilswert([], 0.8) == 0.0 and anteilswert([3.0], 0.8) == 3.0 and anteilswert([1, 2, 3, 4, 5], 0.8) == 4
+    d = Dienst(Vorlage(kennung="klon", name="Klon", ordner=tmp_path, befehl=["true"], speicher_gb=1.0), tmp_path, DienstStand())
+
+    def phase(*werte):
+        for w in werte:
+            d.gb, d.cpu_prozent = w, 80.0
+            d.arbeit_messen()
+        d.gb, d.cpu_prozent = 4.0, 0.0
+        d.arbeit_messen()
+    phase(13.7)
+    for _ in range(9):
+        phase(4.0, 4.7)
+    assert d.stand.arbeitsspitzen.count(13.7) == 1 and d.bedarf_gb == 4.7
+    for _ in range(ARBEITSSPITZEN):
+        phase(9.5)
+    assert len(d.stand.arbeitsspitzen) == ARBEITSSPITZEN and d.bedarf_gb == 9.5 and d.bericht().spitze_gb == 9.5
+    d.gb, d.cpu_prozent = 11.0, 80.0                                 # eine laufende Phase zählt schon mit
+    d.arbeit_messen()
+    assert d.bedarf_gb == 11.0
+
+
+async def test_start_von_aussen_loescht_keine_abstuerze(tmp_path: Path):
+    """Bleibt ein Dienst nach zu vielen Abstürzen aus, startet ihn ein Befehl von außen (Leitstelle) nicht; von Hand schon."""
+    port = freier_port()
+    probe(tmp_path, port)
+    v = verwalter(tmp_path)
+    await v.runde()
+    d = v.dienste["probe"]
+    d.abstuerze.extend([0.0] * (v.regeln.im_fenster + 1))
+    e = await v.starten("probe", von_hand=False)
+    assert not e.erfolg and "bleibt nach" in e.meldung and not offen(port)
+    assert (await v.starten("probe")).erfolg and not d.abstuerze
+    await v.anhalten("probe")

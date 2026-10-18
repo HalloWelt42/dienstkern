@@ -31,7 +31,7 @@ class Soll(str, Enum):
 
 class DienstStand(BaseModel):
     soll: Soll | None = None             # None: hier wurde nie etwas entschieden, der Dienst wird nur übernommen
-    spitze_gb: float | None = None
+    arbeitsspitzen: list[float] = Field(default_factory=list)   # Speicherspitze je Arbeitsphase, die jüngsten zuletzt
     gruppe: int | None = None
 
 

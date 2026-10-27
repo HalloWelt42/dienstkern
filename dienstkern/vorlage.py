@@ -80,6 +80,10 @@ class Vorlage(BaseModel):
                 raise ValueError("steuerung = befehle braucht port, pruefadresse oder pruefbefehl, um zu sehen, ob er läuft")
         if self.prozessmuster:
             re.compile(self.prozessmuster)
+        # Eine relative Umgebungsdatei gilt ab dem Ordner des Dienstes wie ein relatives Programm; sonst hinge sie am
+        # Arbeitsordner dessen, der die Vorlage liest (unter launchd "/")
+        if self.umgebung_datei is not None and not self.umgebung_datei.is_absolute():
+            self.umgebung_datei = self.ordner / self.umgebung_datei
         return self
 
     def programm(self, umgebung: dict[str, str]) -> list[str]:

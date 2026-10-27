@@ -113,6 +113,7 @@ class Verwalter:
                 d.neustart_um = None
                 self._nebenbei(self._neustarten(d))
             d.arbeit_messen()
+            await asyncio.to_thread(d.protokoll_kuerzen)
             # Messwerte schwanken ständig; gemeldet wird nur, was sich in der Sache ändert (Zustand, Arbeit, Bedarf)
             fluechtig = {"gb_jetzt", "cpu_prozent", "spitze_gb"}
             geaendert = geaendert or d.bericht().model_dump(exclude=fluechtig) != vorher.model_dump(exclude=fluechtig)

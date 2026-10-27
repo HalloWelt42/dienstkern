@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import math
 import os
+import shutil
 import signal
 import socket
 import subprocess
@@ -254,6 +255,21 @@ class Dienst:
         if datei.exists() and datei.stat().st_size > PROTOKOLL_GRENZE:
             datei.replace(datei.with_suffix(".log.1"))
         return open(datei, "ab")
+
+    def protokoll_kuerzen(self) -> bool:
+        """Im laufenden Betrieb: ist das Protokoll über der Grenze, wandert es nach .log.1 und die Datei wird geleert.
+        Der Dienst schreibt mit O_APPEND weiter (Modus "ab" beim Start) und landet danach am neuen Anfang; ohne das
+        wüchse das Protokoll eines Dienstes, der wochenlang ohne Neustart läuft, ohne Ende. Zeilen, die genau zwischen
+        Kopieren und Leeren entstehen, gehen verloren; das ist der Preis dafür, den Dienst nicht anzuhalten."""
+        datei = self._protokolldatei()
+        try:
+            if datei.stat().st_size <= PROTOKOLL_GRENZE:
+                return False
+            shutil.copyfile(datei, datei.with_suffix(".log.1"))
+            os.truncate(datei, 0)
+            return True
+        except OSError:
+            return False
 
     def _vorher(self, env: dict[str, str]) -> None:
         v = self.vorlage

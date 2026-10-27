@@ -163,6 +163,39 @@ async def test_umgebung_ist_abgegrenzt(tmp_path: Path):
     assert env["AUS_DATEI"] == "ja" and env["EIGENES"] == "1" and "NICHT_WEITERGEBEN" not in env
 
 
+async def test_relative_umgebungsdatei_gilt_ab_dem_ordner(tmp_path: Path):
+    datei = probe(tmp_path, freier_port())
+    (tmp_path / "eigen.env").write_text("AUS_DATEI=ordner\n")
+    datei.write_text(datei.read_text() + 'umgebung_datei = "eigen.env"\n')
+    v = verwalter(tmp_path)
+    await v.runde()
+    vorlage = v.dienste["probe"].vorlage
+    assert vorlage.umgebung_datei == vorlage.ordner / "eigen.env"
+    assert v.dienste["probe"]._umgebung()["AUS_DATEI"] == "ordner"
+
+
+async def test_protokoll_wird_im_laufenden_betrieb_gekuerzt(tmp_path: Path, monkeypatch):
+    import dienstkern.dienst as dienstmodul
+    probe(tmp_path, freier_port())
+    monkeypatch.setattr(dienstmodul, "PROTOKOLL_GRENZE", 1000)
+    v = verwalter(tmp_path)
+    await v.runde()
+    d = v.dienste["probe"]
+    datei = d.protokolldatei()
+    datei.parent.mkdir(parents=True, exist_ok=True)
+    # wie ein laufender Dienst: die Datei bleibt im Anhängemodus offen, während gekürzt wird
+    schreiber = open(datei, "ab")
+    schreiber.write(b"alt\n" * 400)
+    schreiber.flush()
+    assert d.protokoll_kuerzen() is True
+    assert datei.with_suffix(".log.1").read_bytes().count(b"alt") == 400
+    schreiber.write(b"neu\n")
+    schreiber.flush()
+    schreiber.close()
+    assert datei.read_bytes() == b"neu\n"
+    assert d.protokoll_kuerzen() is False
+
+
 def test_variablen_kommen_aus_der_dienstumgebung(tmp_path: Path):
     probe(tmp_path, freier_port())
     vorlage = dateien_lesen(tmp_path / "dienste", Vorlage)[0][0].model_copy(update={"befehl": ["$PROG", "--pfad", "${HOME}/x", "$UNBEKANNT"]})

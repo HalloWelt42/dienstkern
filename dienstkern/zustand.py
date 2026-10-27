@@ -54,16 +54,27 @@ def systemstart() -> int | None:
     return None
 
 
+# macOS verschiebt kern.boottime bei jeder Uhrkorrektur um Sekunden (gemessen 27.10.2026: 2 s); ein Neustart liegt
+# immer weit mehr als diesen Spielraum vom gespeicherten Wert entfernt
+SYSTEMSTART_SPIELRAUM_S = 300
+
+
+def derselbe_systemstart(gespeichert: int | None, jetzt: int | None) -> bool:
+    if gespeichert is None or jetzt is None:
+        return gespeichert == jetzt
+    return abs(gespeichert - jetzt) <= SYSTEMSTART_SPIELRAUM_S
+
+
 def stand_lesen(datei: Path) -> Gesamtstand:
     jetzt = systemstart()
     try:
         stand = Gesamtstand.model_validate_json(datei.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         stand = Gesamtstand()
-    if stand.systemstart != jetzt:                      # Rechner neu gestartet: alte Gruppen gelten nicht mehr
+    if not derselbe_systemstart(stand.systemstart, jetzt):   # Rechner neu gestartet: alte Gruppen gelten nicht mehr
         for d in stand.dienste.values():
             d.gruppe = None
-        stand.systemstart = jetzt
+    stand.systemstart = jetzt                           # nachgeführt, damit sich kleine Verschiebungen nicht aufsummieren
     return stand
 
 

@@ -303,3 +303,16 @@ async def test_fehlerhafte_dienstdatei_haelt_den_dienst_nicht_an(tmp_path: Path)
     await v.runde()
     await asyncio.sleep(1.0)
     assert "probe" not in v.dienste
+
+
+def test_uhrkorrektur_gilt_nicht_als_neustart(tmp_path, monkeypatch):
+    """macOS verschiebt kern.boottime bei Uhrkorrekturen um Sekunden; die Gruppen bleiben, erst ein echter Neustart
+    verwirft sie."""
+    from dienstkern import zustand
+    datei = tmp_path / "zustand.json"
+    zustand.stand_speichern(datei, zustand.Gesamtstand(systemstart=1000, dienste={"a": zustand.DienstStand(gruppe=42)}))
+    monkeypatch.setattr(zustand, "systemstart", lambda: 1002)
+    stand = zustand.stand_lesen(datei)
+    assert stand.dienste["a"].gruppe == 42 and stand.systemstart == 1002
+    monkeypatch.setattr(zustand, "systemstart", lambda: 1002 + 3600)
+    assert zustand.stand_lesen(datei).dienste["a"].gruppe is None

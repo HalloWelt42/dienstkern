@@ -21,6 +21,12 @@ def test_programmname():
     assert programmname("node /srv/app/server.mjs") == "server.mjs"
     assert programmname("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome --type=renderer") == "Google Chrome"
     assert programmname("") == ""
+    rahmen = "/opt/homebrew/Cellar/python@3.13/3.13.7/Frameworks/Python.framework/Versions/3.13/Resources/Python.app/Contents/MacOS/Python"
+    assert programmname(f"{rahmen} -m rechtschreibung") == "rechtschreibung"
+    assert programmname(f"{rahmen} /srv/befehlsdienst/.venv/bin/uvicorn --factory app:bauen") == "uvicorn"
+    assert programmname("/usr/bin/python3 -X utf8 -u /srv/abholer.py") == "abholer.py"
+    assert programmname("python3 -c 'print(1)'") == "python3"
+    assert programmname("node") == "node"
 
 
 def test_speicher_des_eigenen_prozesses():

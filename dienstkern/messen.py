@@ -150,23 +150,43 @@ class Prozesstabelle:
 # ── Programmname ─────────────────────────────────────────────────────────
 PAKET = re.compile(r"\.app/Contents/MacOS/(.+?)(?:\s+-|$)")
 INTERPRETER = ("python", "node")
+MIT_WERT = {"-X", "-W", "-Q", "-r", "--require", "--import", "--loader"}     # Optionen der Interpreter mit eigenem Wert
+
+
+def _skriptname(interpreter: str, argumente: list[str]) -> str:
+    """Bei Python und Node: das Modul (-m) oder das Skript (erstes Argument, das keine Option ist); sonst der
+    Interpreter selbst (etwa bei -c)."""
+    i = 0
+    while i < len(argumente):
+        t = argumente[i]
+        if t == "-m" and i + 1 < len(argumente):
+            return argumente[i + 1]
+        if t in ("-c", "-e", "--eval", "-p", "--print"):
+            return interpreter
+        if t in MIT_WERT:
+            i += 2
+            continue
+        if not t.startswith("-"):
+            return os.path.basename(t)
+        i += 1
+    return interpreter
 
 
 def programmname(befehl: str) -> str:
-    """Lesbarer Name aus der Befehlszeile: bei Python und Node das Modul (-m) oder Skript statt des Interpreters, bei
-    einem Programm im Paket des Mac der ganze Name (auch mit Leerzeichen), sonst der Name der Programmdatei."""
+    """Lesbarer Name aus der Befehlszeile: bei Python und Node das Modul (-m) oder Skript statt des Interpreters (auch
+    beim Python im Paket des Mac), bei einem anderen Programm im Paket des Mac der ganze Name (auch mit Leerzeichen),
+    sonst der Name der Programmdatei."""
     if paket := PAKET.search(befehl):
+        teile = befehl[paket.start(1):].split()
+        if teile and teile[0].lower().startswith(INTERPRETER):
+            return _skriptname(teile[0], teile[1:])
         return paket.group(1).strip()
     teile = befehl.split()
     if not teile:
         return ""
     name = os.path.basename(teile[0])
     if name.lower().startswith(INTERPRETER):
-        for i, t in enumerate(teile[1:], start=1):
-            if t == "-m" and i + 1 < len(teile):
-                return teile[i + 1]
-            if t.endswith((".py", ".js", ".mjs")):
-                return os.path.basename(t)
+        return _skriptname(name, teile[1:])
     return name
 
 

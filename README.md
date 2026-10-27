@@ -24,7 +24,7 @@ Aufgaben:
 | `dienst` | ein Dienst: starten in eigener Prozessgruppe und Umgebung, prüfen, anhalten (Signal oder eigener Befehl), messen, `Bericht` |
 | `verwalter` | alle Dienste eines Programms: Runde, Neustartregeln, Sollzustand, Abhängigkeiten, Reihenfolge |
 | `zustand` | Zustände, Sollzustand und Prozessgruppen in einer Datei, die Neustarts übersteht |
-| `messen` | Prozesstabelle, Speicher eines Prozesses (physischer Fußabdruck auf dem Mac, PSS auf Linux), Prozess hinter einem Port |
+| `messen` | Prozesstabelle, Speicher eines Prozesses (fest: physischer Fußabdruck auf dem Mac, PSS auf Linux; dazu auf dem Mac aus demselben Aufruf die eingeblendeten Dateien im Arbeitsspeicher, die das System freigeben kann), lesbarer Programmname aus der Befehlszeile, Prozess hinter einem Port |
 | `web` | Schutz der lokalen Schnittstelle, Auslieferung der Oberfläche, Protokollauszüge |
 
 Zwei Arten der Steuerung:

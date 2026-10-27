@@ -1,8 +1,12 @@
 """Prozessmessung mit Bordmitteln des Systems: Prozesstabelle (Gruppen, Nachfahren, Rechenzeit), Speicher eines
-Prozesses und der Prozess hinter einem lauschenden Port.
+Prozesses, lesbarer Programmname und der Prozess hinter einem lauschenden Port.
 
 Prozessspeicher: auf dem Mac der physische Fußabdruck (wie die Aktivitätsanzeige; RSS zählt geteilte Seiten falsch),
 auf Linux PSS. Einheit überall GiB, wie die Systemanzeigen.
+
+Daneben auf dem Mac, aus demselben Aufruf: eingeblendete Dateien im Arbeitsspeicher (Seiten, die resident sind, aber
+nicht zum Fußabdruck zählen, vor allem in den Speicher eingeblendete Dateien wie die Daten einer Datenbank). Das System
+gibt sie bei Bedarf frei; sie zählen deshalb nicht zum festen Speicher.
 """
 
 from __future__ import annotations
@@ -14,6 +18,7 @@ import platform
 import re
 import subprocess
 from pathlib import Path
+from typing import NamedTuple
 
 GIB = 1024**3
 MAC = platform.system() == "Darwin"
@@ -35,13 +40,30 @@ class _RusageV0(ctypes.Structure):
 _libproc = ctypes.CDLL(ctypes.util.find_library("proc") or "/usr/lib/libproc.dylib") if MAC else None
 
 
-def prozess_bytes(pid: int) -> int:
-    """Speicher eines Prozesses in Byte; 0, wenn er nicht (mehr) lesbar ist."""
+class Prozessspeicher(NamedTuple):
+    fest: int                       # Byte, fest belegt: Fußabdruck (Mac) oder PSS (Linux)
+    eingeblendet: int | None        # Byte eingeblendeter Dateien im Arbeitsspeicher, die das System freigeben kann; None: hier nicht getrennt messbar
+
+
+def prozess_speicher(pid: int) -> Prozessspeicher:
+    """Speicher eines Prozesses mit einem Aufruf; (0, None), wenn er nicht (mehr) lesbar ist. Auf dem Mac ist der
+    eingeblendete Anteil, was resident ist, aber nicht zum Fußabdruck zählt (nie unter 0: ausgelagerter oder
+    komprimierter Speicher zählt zum Fußabdruck, nicht zum residenten). Auf Linux steckt er schon im PSS und wird nicht
+    getrennt ausgewiesen."""
     if MAC:
         info = _RusageV0()
         if _libproc.proc_pid_rusage(pid, 0, ctypes.byref(info)) != 0:
-            return 0
-        return int(info.phys_footprint)
+            return Prozessspeicher(0, None)
+        return Prozessspeicher(int(info.phys_footprint), max(0, int(info.resident_size) - int(info.phys_footprint)))
+    return Prozessspeicher(_pss_linux(pid), None)
+
+
+def prozess_bytes(pid: int) -> int:
+    """Fest belegter Speicher eines Prozesses in Byte; 0, wenn er nicht (mehr) lesbar ist."""
+    return prozess_speicher(pid).fest
+
+
+def _pss_linux(pid: int) -> int:
     try:
         for zeile in Path(f"/proc/{pid}/smaps_rollup").read_text().splitlines():
             if zeile.startswith("Pss:"):
@@ -123,6 +145,29 @@ class Prozesstabelle:
                 ergebnis.append(p)
                 offen.extend(kinder.get(p, []))
         return ergebnis
+
+
+# ── Programmname ─────────────────────────────────────────────────────────
+PAKET = re.compile(r"\.app/Contents/MacOS/(.+?)(?:\s+-|$)")
+INTERPRETER = ("python", "node")
+
+
+def programmname(befehl: str) -> str:
+    """Lesbarer Name aus der Befehlszeile: bei Python und Node das Modul (-m) oder Skript statt des Interpreters, bei
+    einem Programm im Paket des Mac der ganze Name (auch mit Leerzeichen), sonst der Name der Programmdatei."""
+    if paket := PAKET.search(befehl):
+        return paket.group(1).strip()
+    teile = befehl.split()
+    if not teile:
+        return ""
+    name = os.path.basename(teile[0])
+    if name.lower().startswith(INTERPRETER):
+        for i, t in enumerate(teile[1:], start=1):
+            if t == "-m" and i + 1 < len(teile):
+                return teile[i + 1]
+            if t.endswith((".py", ".js", ".mjs")):
+                return os.path.basename(t)
+    return name
 
 
 def lauschender_prozess(port: int) -> int | None:

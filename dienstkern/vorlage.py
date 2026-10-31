@@ -46,6 +46,7 @@ class Vorlage(BaseModel):
     oberflaeche: str | None = Field(default=None, description="Adresse einer eigenen Oberfläche des Dienstes, zum Öffnen")
     beschreibung: str = ""
     speicher_gb: float = Field(default=1.0, ge=0, description="Schätzung bis zur ersten Messung")
+    speicher_grenze_gb: float | None = Field(default=None, gt=0, description="harte Höchstgrenze: darüber beendet die Speicherwache den Dienst sofort und sperrt ihn; leer: speicher_gb mal Faktor plus Zuschlag aus den Einstellungen")
     startzeit_s: float = Field(default=120, gt=0, description="so lange darf der Start bis zur Erreichbarkeit dauern")
     anhaltezeit_s: float = Field(default=20, gt=0, description="so lange darf das Beenden dauern, danach hart")
     umgebung: dict[str, str] = Field(default_factory=dict)

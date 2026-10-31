@@ -26,6 +26,7 @@ Aufgaben:
 | `zustand` | Zustände, Sollzustand und Prozessgruppen in einer Datei, die Neustarts übersteht |
 | `messen` | Prozesstabelle, Speicher eines Prozesses (fest: physischer Fußabdruck auf dem Mac, PSS auf Linux; dazu auf dem Mac aus demselben Aufruf die eingeblendeten Dateien im Arbeitsspeicher, die das System freigeben kann), lesbarer Programmname aus der Befehlszeile, Prozess hinter einem Port |
 | `web` | Schutz der lokalen Schnittstelle, Auslieferung der Oberfläche, Protokollauszüge |
+| `speicherwache` | harte Speichergrenze je Dienst und Notaus bei knappem Rechner: misst im eigenen Takt (Vorgabe 1 s) den Fußabdruck aller Prozesse eines Dienstes; über der Grenze (`speicher_grenze_gb`, sonst `speicher_gb` mal Faktor plus Zuschlag) oder wenn der Rechner knapp wird (freier Anteil, kritischer Druck, Auslagerung: zu viel, zu schnell wachsend oder zu lange) wird der Dienst gesperrt und sofort hart beendet; er startet erst wieder, wenn ein Mensch die Sperre aufhebt (`Verwalter.entsperren`). Ohne `speicherschutz` (Vorgabe) läuft keine Wache; Programme schalten sie ein, indem sie die Eigenschaft überschreiben |
 
 Zwei Arten der Steuerung:
 

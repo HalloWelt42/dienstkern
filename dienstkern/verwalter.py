@@ -10,6 +10,7 @@ import asyncio
 import logging
 import time
 from collections.abc import Callable, Coroutine
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -17,8 +18,9 @@ from pydantic import BaseModel, Field
 
 from .dienst import Bericht, Dienst
 from .messen import Prozesstabelle
+from .speicherwache import Eingriff, Speicherschutz, Speicherwache, VorEingriff
 from .vorlage import Ladefehler, Vorlage
-from .zustand import DienstStand, Soll, Zustand, stand_lesen, stand_speichern
+from .zustand import DienstStand, Soll, Sperre, Zustand, stand_lesen, stand_speichern
 
 log = logging.getLogger("dienstkern")
 
@@ -53,6 +55,8 @@ class Verwalter:
         self.stand = stand_lesen(zustand_datei)
         self.aenderung = asyncio.Event()
         self._aufgaben: set[asyncio.Task] = set()
+        self.wache = Speicherwache(self)
+        self.vor_speicherabbruch: VorEingriff | None = None   # sagt es weiter, bevor der Dienst beendet wird (etwa der Leitstelle)
 
     @property
     def regeln(self) -> Neustartregeln:
@@ -61,6 +65,11 @@ class Verwalter:
     @property
     def takt_s(self) -> float:
         return self._takt_s
+
+    @property
+    def speicherschutz(self) -> Speicherschutz | None:
+        """Einstellungen der Speicherwache; None: keine Wache (Vorgabe des Kerns, Programme schalten sie ein)."""
+        return None
 
     def _stand_speichern(self) -> None:
         stand_speichern(self.zustand_datei, self.stand)
@@ -145,6 +154,8 @@ class Verwalter:
                 return d._gestoert(f"braucht {k}, den es hier nicht gibt")
             if k in kette or k == d.kennung:
                 return d._gestoert(f"Abhängigkeiten im Kreis: {' -> '.join((*kette, d.kennung, k))}")
+            if vor.sperrsatz:
+                return False, f"braucht {vor.vorlage.name}, {vor.sperrsatz}"
             if vor.zustand != Zustand.LAEUFT:
                 vor.stand.soll = Soll.LAEUFT
                 ok, meldung = await self._mit_abhaengigkeiten(vor, (*kette, d.kennung))
@@ -166,6 +177,7 @@ class Verwalter:
                 self._nebenbei(self._neustarten(d))
 
     async def schleife(self) -> None:
+        self._nebenbei(self.wache.schleife())
         await self.hochfahren()
         while True:
             await asyncio.sleep(self.takt_s)
@@ -186,6 +198,8 @@ class Verwalter:
         d = self.dienste.get(kennung)
         if d is None:
             return Ergebnis(ziel=kennung, erfolg=False, meldung=f"unbekannter Dienst {kennung}")
+        if d.sperrsatz:
+            return Ergebnis(ziel=kennung, erfolg=False, meldung=f"{d.vorlage.name} {d.sperrsatz}")
         if not von_hand and len(d.abstuerze) > self.regeln.im_fenster:
             return Ergebnis(ziel=kennung, erfolg=False,
                             meldung=f"{d.vorlage.name} bleibt nach {len(d.abstuerze)} Abstürzen aus, bis er von Hand startet")
@@ -208,6 +222,48 @@ class Verwalter:
         if not aus.erfolg:
             return aus
         return await self.starten(kennung)
+
+    # ── Speicherwache ────────────────────────────────────────────────────
+    async def speicher_abbrechen(self, e: Eingriff) -> None:
+        """Erst sperren und sichern (der Sollzustand ist aus, ein Neustart des Programms oder Rechners startet ihn nicht),
+        dann weitersagen, dann sofort beenden."""
+        d = self.dienste.get(e.kennung)
+        if d is None:
+            return
+        d.stand.sperre = Sperre(grund=e.satz, seit=datetime.now().astimezone().isoformat(timespec="seconds"), anlass=e.anlass,
+                                gb=e.gb, grenze_gb=e.grenze_gb)
+        d.stand.soll = Soll.AUS
+        d.neustart_um = None
+        self._stand_speichern()
+        self.aenderung.set()
+        log.warning("%s: %s; wird sofort beendet und gesperrt", d.vorlage.name, e.satz)
+        if self.vor_speicherabbruch is not None:
+            try:
+                await asyncio.wait_for(self.vor_speicherabbruch(e), timeout=1.0)
+            except Exception:                                   # weitersagen darf das Beenden nie aufhalten
+                log.exception("Speicherabbruch von %s nicht weitergesagt", d.vorlage.name)
+        wie = await d.sofort_beenden()
+        d.protokoll_vermerken(f"{wie} von der Speicherwache: {e.satz}; gesperrt, bis die Sperre von Hand aufgehoben ist")
+        log.warning("%s %s; gesperrt, bis die Sperre von Hand aufgehoben ist", d.vorlage.name, wie)
+        self._stand_speichern()
+        self.aenderung.set()
+
+    def entsperren(self, kennung: str) -> Ergebnis:
+        """Nur von Hand: die Sperre aufheben. Gestartet wird damit nichts; Abstürze zählen von vorn."""
+        d = self.dienste.get(kennung)
+        if d is None:
+            return Ergebnis(ziel=kennung, erfolg=False, meldung=f"unbekannter Dienst {kennung}")
+        if d.stand.sperre is None:
+            return Ergebnis(ziel=kennung, erfolg=True, meldung="war nicht gesperrt")
+        grund = d.stand.sperre.grund
+        d.stand.sperre = None
+        d.abstuerze.clear()
+        d.meldung = ""
+        if d.zustand == Zustand.GESTOERT:
+            d.zustand = Zustand.AUS
+        d.protokoll_vermerken("Sperre von Hand aufgehoben")
+        log.info("Sperre von %s von Hand aufgehoben (war: %s)", d.vorlage.name, grund)
+        return self._abschliessen(d, "entsperren", True, "Sperre aufgehoben; der Dienst startet erst, wenn er gebraucht oder gestartet wird")
 
     def reihenfolge(self, kennungen: list[str]) -> list[str]:
         """Startreihenfolge: wer gebraucht wird, zuerst (innerhalb der genannten Kennungen; Kreise brechen ab, ohne

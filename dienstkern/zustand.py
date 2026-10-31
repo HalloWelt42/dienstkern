@@ -29,10 +29,22 @@ class Soll(str, Enum):
     AUS = "aus"
 
 
+class Sperre(BaseModel):
+    """Ein Dienst, den die Speicherwache beendet hat: er startet nicht wieder, weder nach Sollzustand noch auf Befehl,
+    bis ein Mensch die Sperre aufhebt."""
+
+    grund: str                           # ganzer Satz, so wie Oberfläche und Leitstelle ihn zeigen
+    seit: str                            # Zeitpunkt (ISO, Ortszeit)
+    anlass: str = "grenze"               # grenze: über der eigenen Höchstgrenze; knapp: der Rechner wurde knapp
+    gb: float | None = None              # gemessen beim Eingriff
+    grenze_gb: float | None = None
+
+
 class DienstStand(BaseModel):
     soll: Soll | None = None             # None: hier wurde nie etwas entschieden, der Dienst wird nur übernommen
     arbeitsspitzen: list[float] = Field(default_factory=list)   # Speicherspitze je Arbeitsphase, die jüngsten zuletzt
     gruppe: int | None = None
+    sperre: Sperre | None = None         # von der Speicherwache gesetzt; hebt nur ein Mensch auf
 
 
 class Gesamtstand(BaseModel):

@@ -56,6 +56,7 @@ class Bericht(BaseModel):
     cpu_prozent: float | None = None    # Prozessorlast, Prozent eines Kerns, solange er läuft
     aktiv: bool = False                 # arbeitet gerade (Prozessorlast über der Schwelle des Dienstes)
     soll: Soll | None = None
+    sperre: str | None = None           # von der Speicherwache gesperrt: der Grund; startet erst wieder, wenn ein Mensch sie aufhebt
     meldung: str = ""
 
 
@@ -170,6 +171,17 @@ class Dienst:
                 self.meldung = "von außen beendet"
             self.zustand = Zustand.AUS
         return None
+
+    def prozesse(self, tabelle: Prozesstabelle) -> list[int]:
+        """Die Prozesse, die zum Dienst zählen, nach dem, was über ihn bekannt ist (ohne seinen Zustand zu ändern): die
+        eigene Gruppe, sonst der übernommene Prozess samt Nachfahren, bei Befehlsdiensten was zum Prozessmuster passt."""
+        if self.vorlage.steuerung == Steuerung.BEFEHLE:
+            return tabelle.passend(self.vorlage.prozessmuster) if self.vorlage.prozessmuster else []
+        if self.stand.gruppe is not None:
+            return tabelle.in_gruppe(self.stand.gruppe)
+        if self.fremd_pid:
+            return tabelle.mit_nachfahren(self.fremd_pid)
+        return []
 
     def _pruefen_befehle(self, tabelle: Prozesstabelle) -> None:
         """Befehlsdienst: er läuft, wenn die Prüfung gelingt; gemessen wird, was zum Prozessmuster passt."""
@@ -293,9 +305,16 @@ class Dienst:
                                             start_new_session=True)
         self.stand.gruppe = self.prozess.pid
 
+    @property
+    def sperrsatz(self) -> str | None:
+        s = self.stand.sperre
+        return f"gesperrt: {s.grund}; startet erst wieder, wenn die Sperre von Hand aufgehoben ist" if s else None
+
     async def starten(self) -> tuple[bool, str]:
         async with self.sperre:
             self.neustart_um = None
+            if self.sperrsatz:
+                return False, self.sperrsatz
             if self.zustand == Zustand.LAEUFT:
                 return True, "läuft bereits"
             if self.vorlage.port and await asyncio.to_thread(self.erreichbar):
@@ -370,6 +389,44 @@ class Dienst:
             self.zustand, self.gb, self.fremd_pid, self.meldung = Zustand.AUS, None, None, ""
             return True, "hart beendet" if hart else "beendet"
 
+    async def sofort_beenden(self) -> str:
+        """Für die Speicherwache: sofort und hart (SIGKILL, ohne Frist zum Aufräumen), auch mitten im Start (ohne auf die
+        Sperre des Starts zu warten). Befehlsdienste mit ihrem Anhaltebefehl. Die laufende Arbeitsphase zählt nicht als
+        Bedarf (ein durchgegangener Dienst soll die Planung nicht verzerren). Danach gestört; der Aufrufer setzt die Sperre."""
+        v = self.vorlage
+        self.neustart_um = None
+        self._phase_spitze = None
+        if v.steuerung == Steuerung.BEFEHLE or (v.anhaltebefehl and self.fremd_pid):
+            try:
+                await asyncio.to_thread(self._befehl_ausfuehren, v.anhaltebefehl, v.anhaltezeit_s)
+                wie = "mit dem Anhaltebefehl beendet"
+            except (OSError, subprocess.SubprocessError) as f:
+                wie = f"Anhaltebefehl scheiterte: {f}"
+        elif (g := self.stand.gruppe) is not None:
+            _signal_gruppe(g, signal.SIGKILL)
+            await self._warten(lambda t: not _lebt(g, t))
+            if self.prozess and self.prozess.poll() is not None:
+                self.prozess = None
+            self.stand.gruppe = None
+            wie = "hart beendet"
+        elif self.fremd_pid:
+            pids = (await asyncio.to_thread(Prozesstabelle)).mit_nachfahren(self.fremd_pid)
+            _signal_prozesse(pids, signal.SIGKILL)
+            await self._warten(lambda t: not any(p in t.eltern for p in pids))
+            wie = "hart beendet"
+        else:
+            wie = "lief schon nicht mehr"
+        self.zustand, self.gb, self.cpu_prozent, self._rechenzeit, self.fremd_pid = Zustand.GESTOERT, None, None, None, None
+        return wie
+
+    def protokoll_vermerken(self, text: str) -> None:
+        """Eine Zeile im Protokoll des Dienstes, damit dort steht, warum er endete."""
+        try:
+            with self._protokoll_oeffnen() as aus:
+                aus.write(f"\n--- {text} ({time.strftime('%Y-%m-%d %H:%M:%S')}) ---\n".encode())
+        except OSError:
+            pass
+
     async def _anhalten_befehl(self) -> tuple[bool, str]:
         """Anhalten mit dem eigenen Befehl, nie per Signal: bei Containern träfe ein Signal sonst die Portweiterleitung."""
         if not await asyncio.to_thread(self.erreichbar):
@@ -429,7 +486,8 @@ class Dienst:
         return Bericht(kennung=self.kennung, name=self.vorlage.name, port=self.vorlage.port, zustand=self.zustand, fremd=self.fremd_pid is not None,
                        gb_jetzt=round(self.gb, 2) if gemessen else None, bedarf_gb=self.bedarf_gb,
                        spitze_gb=max(self.stand.arbeitsspitzen, default=None),
-                       cpu_prozent=self.cpu_prozent if gemessen else None, aktiv=laeuft and self.aktiv, soll=self.stand.soll, meldung=self.meldung)
+                       cpu_prozent=self.cpu_prozent if gemessen else None, aktiv=laeuft and self.aktiv, soll=self.stand.soll,
+                       sperre=self.stand.sperre.grund if self.stand.sperre else None, meldung=self.sperrsatz or self.meldung)
 
     def protokolldatei(self) -> Path:
         return self._protokolldatei()

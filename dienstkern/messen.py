@@ -17,6 +17,7 @@ import os
 import platform
 import re
 import subprocess
+from enum import Enum
 from pathlib import Path
 from typing import NamedTuple
 
@@ -61,6 +62,61 @@ def prozess_speicher(pid: int) -> Prozessspeicher:
 def prozess_bytes(pid: int) -> int:
     """Fest belegter Speicher eines Prozesses in Byte; 0, wenn er nicht (mehr) lesbar ist."""
     return prozess_speicher(pid).fest
+
+
+# ── Rechner ──────────────────────────────────────────────────────────────
+class Druckstufe(int, Enum):
+    """Speicherdruck, wie das System ihn meldet (macOS kern.memorystatus_vm_pressure_level)."""
+
+    NORMAL = 1
+    WARNUNG = 2
+    KRITISCH = 4
+
+
+class Systemspeicher(NamedTuple):
+    frei_prozent: float | None      # Anteil, den das System frei nennt; None: nicht lesbar
+    druck: Druckstufe
+    swap_gb: float | None = None    # belegte Auslagerung in GiB; None: nicht lesbar
+
+
+class _XswUsage(ctypes.Structure):
+    _fields_ = [("total", ctypes.c_uint64), ("avail", ctypes.c_uint64), ("used", ctypes.c_uint64),
+                ("pagesize", ctypes.c_uint32), ("encrypted", ctypes.c_bool)]
+
+
+def _swap_mac() -> float | None:
+    """vm.swapusage ohne neuen Prozess."""
+    wert, groesse = _XswUsage(), ctypes.c_size_t(ctypes.sizeof(_XswUsage))
+    if _libc.sysctlbyname(b"vm.swapusage", ctypes.byref(wert), ctypes.byref(groesse), None, 0) != 0:
+        return None
+    return wert.used / GIB
+
+
+_libc = ctypes.CDLL(None) if MAC else None
+
+
+def _sysctl_zahl(name: str) -> int | None:
+    """Ganzzahl aus sysctl ohne neuen Prozess (die Speicherwache fragt jede Sekunde)."""
+    wert, groesse = ctypes.c_int64(0), ctypes.c_size_t(8)
+    if _libc.sysctlbyname(name.encode(), ctypes.byref(wert), ctypes.byref(groesse), None, 0) != 0:
+        return None
+    return int(wert.value) if groesse.value == 8 else int(wert.value & 0xFFFFFFFF)
+
+
+def systemspeicher() -> Systemspeicher:
+    """Mac: der freie Anteil, nach dem das System selbst Speicher zurückfordert (kern.memorystatus_level, wie
+    `memory_pressure` ihn als "System-wide memory free percentage" zeigt), und die Druckstufe. Linux: MemAvailable je
+    MemTotal; eine Druckstufe meldet Linux so nicht, sie bleibt normal. Dazu die belegte Auslagerung."""
+    if MAC:
+        frei, druck = _sysctl_zahl("kern.memorystatus_level"), _sysctl_zahl("kern.memorystatus_vm_pressure_level")
+        stufe = Druckstufe(druck) if druck in (1, 2, 4) else Druckstufe.NORMAL
+        return Systemspeicher(float(frei) if frei is not None else None, stufe, _swap_mac())
+    try:
+        werte = {z.split(":")[0]: int(z.split()[1]) for z in Path("/proc/meminfo").read_text().splitlines() if ":" in z}
+        swap = (werte["SwapTotal"] - werte["SwapFree"]) * 1024 / GIB
+        return Systemspeicher(round(100 * werte["MemAvailable"] / werte["MemTotal"], 1), Druckstufe.NORMAL, swap)
+    except (OSError, KeyError, ValueError, ZeroDivisionError):
+        return Systemspeicher(None, Druckstufe.NORMAL)
 
 
 def _pss_linux(pid: int) -> int:

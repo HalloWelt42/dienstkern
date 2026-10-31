@@ -51,6 +51,9 @@ class Speicherschutz(BaseModel):
     takt_s: float = Field(default=1.0, ge=0.2, le=10, description="so oft wird gemessen, solange ein Dienst läuft")
     faktor: float = Field(default=1.5, ge=1, le=20, description="Höchstgrenze ohne eigene Angabe: speicher_gb mal diesen Faktor ...")
     zuschlag_gb: float = Field(default=4.0, ge=0, le=512, description="... plus diesen Zuschlag")
+    obergrenze_je_art_gb: dict[str, float] = Field(
+        default_factory=dict, description="Obergrenze je Dienstart (etwa Fähigkeit hoeren): höher geht kein Dienst dieser Art, "
+                                          "auch nicht mit eigener Grenze oder nach der Formel; hat er mehrere, gilt die kleinste")
     frei_mindestens_prozent: float = Field(default=8.0, ge=0, le=50, description="darunter (freier Anteil, wie das System ihn "
                                            "nennt) gilt der Rechner als knapp; 0 schaltet diese Prüfung ab")
     druck_kritisch: bool = Field(default=True, description="kritischer Speicherdruck des Systems gilt ebenfalls als knapp")
@@ -68,8 +71,11 @@ class Speicherschutz(BaseModel):
 
 
 def grenze_gb(v: Vorlage, s: Speicherschutz) -> float:
-    """Die Höchstgrenze eines Dienstes in GiB."""
-    return v.speicher_grenze_gb if v.speicher_grenze_gb is not None else round(v.speicher_gb * s.faktor + s.zuschlag_gb, 2)
+    """Die Höchstgrenze eines Dienstes in GiB: die eigene Grenze, sonst die Formel aus der Anmeldung; höchstens die
+    Obergrenze seiner Art."""
+    g = v.speicher_grenze_gb if v.speicher_grenze_gb is not None else round(v.speicher_gb * s.faktor + s.zuschlag_gb, 2)
+    deckel = [s.obergrenze_je_art_gb[a] for a in v.speicherarten() if a in s.obergrenze_je_art_gb]
+    return min([g, *deckel])
 
 
 def _gb(wert: float, stellen: int = 1) -> str:

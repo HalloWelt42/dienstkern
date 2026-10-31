@@ -176,6 +176,24 @@ def test_entscheiden_und_grenze():
     assert entscheiden([(moss, 9.0)], jetzt(Systemspeicher(9.0, Druckstufe.NORMAL)), s.model_copy(update={"frei_mindestens_prozent": 0})) == []
 
 
+def test_obergrenze_je_art_deckelt_jede_grenze():
+    """Nutzer 31.10.2026: ein Sprachmodell belegt nie mehr als 20 GB, auch wenn Anmeldung oder eigene Grenze mehr ergäben."""
+
+    class MitArt(Vorlage):
+        def speicherarten(self) -> frozenset[str]:
+            return frozenset({"hoeren"})
+
+    s = Speicherschutz(faktor=1.5, zuschlag_gb=4, obergrenze_je_art_gb={"hoeren": 20, "stimme": 18})
+    gross = MitArt(kennung="gross", name="g", ordner=Path("/"), befehl=["x"], speicher_gb=16)                 # Formel 28
+    eigen = MitArt(kennung="eigen", name="e", ordner=Path("/"), befehl=["x"], speicher_gb=4, speicher_grenze_gb=40)
+    klein = MitArt(kennung="klein", name="k", ordner=Path("/"), befehl=["x"], speicher_gb=4)                  # Formel 10
+    ohne = Vorlage(kennung="ohne", name="o", ordner=Path("/"), befehl=["x"], speicher_gb=16)
+    assert grenze_gb(gross, s) == 20 and grenze_gb(eigen, s) == 20 and grenze_gb(klein, s) == 10
+    assert grenze_gb(ohne, s) == 28                                       # ohne Art gilt kein Deckel
+    d = Dienst(gross, Path("/tmp"), DienstStand())
+    assert [e.kennung for e in entscheiden([(d, 20.5)], [(0.0, RUHIG)], s)] == ["gross"]
+
+
 def dienst(kennung: str, speicher_gb: float, grenze: float | None = None) -> Dienst:
     return Dienst(Vorlage(kennung=kennung, name=kennung, ordner=Path("/"), befehl=["x"], speicher_gb=speicher_gb, speicher_grenze_gb=grenze),
                   Path("/tmp"), DienstStand())

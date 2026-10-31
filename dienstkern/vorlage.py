@@ -87,6 +87,11 @@ class Vorlage(BaseModel):
             self.umgebung_datei = self.ordner / self.umgebung_datei
         return self
 
+    def speicherarten(self) -> frozenset[str]:
+        """Arten des Dienstes, für die eine Obergrenze des Speichers gelten kann (`Speicherschutz.obergrenze_je_art_gb`);
+        Programme mit eigenen Dienstarten (etwa Fähigkeiten im Maschinenraum) nennen sie hier."""
+        return frozenset()
+
     def programm(self, umgebung: dict[str, str]) -> list[str]:
         """Befehl mit aufgelösten Variablen aus der Umgebung des Dienstes; ein relatives Programm gilt ab `ordner`."""
         teile = [erweitern(t, umgebung) for t in self.befehl]

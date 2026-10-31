@@ -232,6 +232,10 @@ class Dienst:
         spitzen = self.stand.arbeitsspitzen + ([self._phase_spitze] if self._phase_spitze is not None else [])
         return round(max(anteilswert(spitzen, BEDARF_ANTEIL), self.vorlage.speicher_gb, self.gb or 0.0), 2)
 
+    def spitzen_verwerfen(self) -> None:
+        self.stand.arbeitsspitzen = []
+        self._phase_spitze = None
+
     def arbeit_messen(self) -> None:
         """Je Prüfung: arbeitet er, wächst die Spitze der laufenden Phase; endet die Phase, kommt sie in die Liste."""
         if self.aktiv and self.gb is not None:

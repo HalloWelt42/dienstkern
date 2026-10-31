@@ -265,6 +265,40 @@ class Verwalter:
         log.info("Sperre von %s von Hand aufgehoben (war: %s)", d.vorlage.name, grund)
         return self._abschliessen(d, "entsperren", True, "Sperre aufgehoben; der Dienst startet erst, wenn er gebraucht oder gestartet wird")
 
+    async def sperren(self, kennung: str, grund: str) -> Ergebnis:
+        """Von Hand sperren, etwa einen neuen Dienst, bis seine Kurzmessung bestanden ist: wie eine Sperre der
+        Speicherwache startet er dann nicht (Sollzustand aus); läuft er, wird er regulär angehalten. Aufheben nur von
+        Hand (`entsperren`)."""
+        d = self.dienste.get(kennung)
+        if d is None:
+            return Ergebnis(ziel=kennung, erfolg=False, meldung=f"unbekannter Dienst {kennung}")
+        grund = grund.strip()
+        if not grund:
+            return Ergebnis(ziel=kennung, erfolg=False, meldung="Grund fehlt")
+        d.stand.sperre = Sperre(grund=grund, seit=datetime.now().astimezone().isoformat(timespec="seconds"), anlass="hand")
+        d.stand.soll = Soll.AUS
+        d.neustart_um = None
+        self._stand_speichern()
+        self.aenderung.set()
+        d.protokoll_vermerken(f"von Hand gesperrt: {grund}")
+        log.info("%s von Hand gesperrt: %s", d.vorlage.name, grund)
+        if d.stand.gruppe is not None:
+            await d.anhalten()
+        return self._abschliessen(d, "sperren", True, f"gesperrt: {grund}")
+
+    def spitzen_verwerfen(self, kennung: str) -> Ergebnis:
+        """Die gemessenen Arbeitsspitzen eines Dienstes verwerfen (etwa nach einem Umbau, wenn die alten Werte nicht mehr
+        gelten); der Bedarf beginnt wieder bei der Schätzung der Dienstdatei."""
+        d = self.dienste.get(kennung)
+        if d is None:
+            return Ergebnis(ziel=kennung, erfolg=False, meldung=f"unbekannter Dienst {kennung}")
+        alt = d.stand.arbeitsspitzen
+        d.spitzen_verwerfen()
+        d.protokoll_vermerken(f"Arbeitsspitzen von Hand verworfen ({len(alt)}, höchste {max(alt, default=0):.2f} GB)")
+        log.info("%s: Arbeitsspitzen verworfen (%s)", d.vorlage.name, alt)
+        return self._abschliessen(d, "spitzen_verwerfen", True,
+                                  f"{len(alt)} Arbeitsspitzen verworfen, Bedarf jetzt {d.bedarf_gb:.2f} GB")
+
     def reihenfolge(self, kennungen: list[str]) -> list[str]:
         """Startreihenfolge: wer gebraucht wird, zuerst (innerhalb der genannten Kennungen; Kreise brechen ab, ohne
         etwas zu verlieren). Anhalten geht in umgekehrter Folge."""

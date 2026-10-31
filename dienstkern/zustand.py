@@ -30,12 +30,12 @@ class Soll(str, Enum):
 
 
 class Sperre(BaseModel):
-    """Ein Dienst, den die Speicherwache beendet hat: er startet nicht wieder, weder nach Sollzustand noch auf Befehl,
-    bis ein Mensch die Sperre aufhebt."""
+    """Ein gesperrter Dienst (von der Speicherwache beendet oder von Hand gesperrt): er startet nicht wieder, weder nach
+    Sollzustand noch auf Befehl, bis ein Mensch die Sperre aufhebt."""
 
     grund: str                           # ganzer Satz, so wie Oberfläche und Leitstelle ihn zeigen
     seit: str                            # Zeitpunkt (ISO, Ortszeit)
-    anlass: str = "grenze"               # grenze: über der eigenen Höchstgrenze; knapp: der Rechner wurde knapp
+    anlass: str = "grenze"               # grenze: über der eigenen Höchstgrenze; knapp: der Rechner wurde knapp; hand: von Hand
     gb: float | None = None              # gemessen beim Eingriff
     grenze_gb: float | None = None
 

@@ -74,6 +74,9 @@ async def test_wachsender_dienst_wird_beendet_und_gesperrt(tmp_path: Path):
         assert await bis(lambda: not offen(port), 15), "der wachsende Dienst läuft noch"
         d = v.dienste["hoerer"]
         assert await bis(lambda: d.zustand == Zustand.GESTOERT, 5)
+        # die Zeile im Protokoll kommt nach dem Beenden; unter Last kann die Runde den Tod vorher sehen
+        log = tmp_path / "protokolle" / "hoerer.log"
+        assert await bis(lambda: "Speicherwache" in log.read_text(), 5)
     finally:
         schleife.cancel()
         await v.beenden()
@@ -230,4 +233,40 @@ async def test_wache_misst_den_verlauf_der_auslagerung(tmp_path: Path):
             break
     assert [(e.kennung, e.anlass) for e in eingriffe] == [("dick", "knapp")] and "Auslagerung wächst" in eingriffe[0].satz
     assert not offen(port) and v.stand.dienste["dick"].sperre is not None
+    await v.beenden()
+
+
+async def test_von_hand_sperren_haelt_an_und_startet_nichts(tmp_path: Path):
+    """Ein neuer Dienst bleibt gesperrt, bis seine Kurzmessung bestanden ist (HELF-87): von Hand gesperrt läuft er nicht,
+    kein Befehl startet ihn, nur das Aufheben von Hand gibt ihn frei."""
+    port = freier_port()
+    probe(tmp_path, port, kennung="neu")
+    v = MitWache(tmp_path, schutz())
+    await v.runde()
+    assert not (await v.sperren("neu", "  ")).erfolg                       # ohne Grund nicht
+    assert (await v.starten("neu")).erfolg and offen(port)
+    e = await v.sperren("neu", "neu eingerichtet, Kurzmessung steht aus")
+    assert e.erfolg and not offen(port)
+    sperre = v.stand.dienste["neu"].sperre
+    assert sperre is not None and sperre.anlass == "hand" and v.stand.dienste["neu"].soll == Soll.AUS
+    assert not (await v.starten("neu", von_hand=False)).erfolg and not (await v.starten("neu")).erfolg and not offen(port)
+    assert v.entsperren("neu").erfolg and not offen(port)
+    assert (await v.starten("neu")).erfolg and offen(port)
+    await v.anhalten("neu")
+    await v.beenden()
+
+
+async def test_spitzen_verwerfen_setzt_den_bedarf_zurueck(tmp_path: Path):
+    probe(tmp_path, freier_port(), kennung="alt")
+    (tmp_path / "zustand.json").write_text('{"dienste": {"alt": {"arbeitsspitzen": [4.27, 133.48]}}}')
+    v = MitWache(tmp_path, schutz())
+    await v.runde()
+    d = v.dienste["alt"]
+    assert d.bedarf_gb > 100
+    e = v.spitzen_verwerfen("alt")
+    assert e.erfolg and "2 Arbeitsspitzen verworfen" in e.meldung
+    assert d.stand.arbeitsspitzen == [] and d.bedarf_gb == 0.5
+    assert '"arbeitsspitzen": []' in (tmp_path / "zustand.json").read_text()
+    assert "verworfen" in (tmp_path / "protokolle" / "alt.log").read_text()
+    assert not v.spitzen_verwerfen("gibtsnicht").erfolg
     await v.beenden()
